@@ -127,6 +127,8 @@ namespace VSCodeEditor
             EditorGUI.indentLevel--;
 
             HandledExtensionsString = EditorGUILayout.TextField(new GUIContent("Extensions handled: "), HandledExtensionsString);
+
+            m_ProjectGeneration.GenerateReferencePropsFile = EditorGUILayout.ToggleLeft("Generate Reference .props file", m_ProjectGeneration.GenerateReferencePropsFile);
         }
 
         void RegenerateProjectFiles()

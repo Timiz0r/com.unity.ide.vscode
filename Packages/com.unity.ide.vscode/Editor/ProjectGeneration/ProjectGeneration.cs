@@ -20,6 +20,8 @@ namespace VSCodeEditor
         string SolutionFile();
         string ProjectDirectory { get; }
         IAssemblyNameProvider AssemblyNameProvider { get; }
+        bool GenerateReferencePropsFile { get; set; }
+
         void GenerateAll(bool generateAll);
         bool SolutionExists();
     }
@@ -118,6 +120,12 @@ namespace VSCodeEditor
         string[] m_ProjectSupportedExtensions = new string[0];
         public string ProjectDirectory { get; }
         IAssemblyNameProvider IGenerator.AssemblyNameProvider => m_AssemblyNameProvider;
+
+        public bool GenerateReferencePropsFile
+        {
+            get => EditorPrefs.GetBool("timiutils_generate_reference_props_file", true);
+            set => EditorPrefs.SetBool("timiutils_generate_reference_props_file", value);
+        }
 
         public void GenerateAll(bool generateAll)
         {
@@ -380,7 +388,9 @@ namespace VSCodeEditor
             Dictionary<string, string> allAssetsProjectParts,
             List<ResponseFileData> responseFilesData)
         {
-            SyncProjectFileIfNotChanged(ProjectFile(assembly), ProjectText(assembly, allAssetsProjectParts, responseFilesData));
+            (string projectText, string referencePropsFileText) = ProjectText(assembly, allAssetsProjectParts, responseFilesData);
+            SyncProjectFileIfNotChanged(ProjectFile(assembly), projectText);
+            SyncProjectFileIfNotChanged(ReferencePropsFile(assembly), referencePropsFileText);
         }
 
         void SyncProjectFileIfNotChanged(string path, string newContents)
@@ -408,12 +418,13 @@ namespace VSCodeEditor
             m_FileIOProvider.WriteAllText(filename, newContents);
         }
 
-        string ProjectText(
+        (string projectText, string referencePropsFileText) ProjectText(
             Assembly assembly,
             Dictionary<string, string> allAssetsProjectParts,
             List<ResponseFileData> responseFilesData)
         {
             var projectBuilder = new StringBuilder();
+            var referencePropsFileText = new StringBuilder("<Project>\r\n  <ItemGroup>\r\n");
             ProjectHeader(assembly, responseFilesData, projectBuilder);
             var references = new List<string>();
 
@@ -450,7 +461,7 @@ namespace VSCodeEditor
             foreach (var reference in allReferences)
             {
                 string fullReference = Path.IsPathRooted(reference) ? reference : Path.Combine(ProjectDirectory, reference);
-                AppendReference(fullReference, projectBuilder);
+                AppendReference(fullReference, projectBuilder, referencePropsFileText);
             }
 
             if (0 < assembly.assemblyReferences.Length)
@@ -467,22 +478,35 @@ namespace VSCodeEditor
             }
 
             projectBuilder.Append(ProjectFooter());
-            return projectBuilder.ToString();
+            referencePropsFileText.Append("  </ItemGroup>\r\n</Project>");
+
+            return (projectBuilder.ToString(), referencePropsFileText.ToString());
         }
 
-        static void AppendReference(string fullReference, StringBuilder projectBuilder)
+        static void AppendReference(string fullReference, StringBuilder projectBuilder, StringBuilder referencePropsFileText)
         {
             var escapedFullPath = SecurityElement.Escape(fullReference);
             escapedFullPath = escapedFullPath.NormalizePath();
             projectBuilder.Append("    <Reference Include=\"").Append(Path.GetFileNameWithoutExtension(escapedFullPath)).Append("\">").Append(k_WindowsNewline);
             projectBuilder.Append("        <HintPath>").Append(escapedFullPath).Append("</HintPath>").Append(k_WindowsNewline);
             projectBuilder.Append("    </Reference>").Append(k_WindowsNewline);
+
+            referencePropsFileText.Append("    <Reference Include=\"").Append(Path.GetFileNameWithoutExtension(escapedFullPath)).Append("\">").Append(k_WindowsNewline);
+            referencePropsFileText.Append("      <HintPath>").Append(escapedFullPath).Append("</HintPath>").Append(k_WindowsNewline);
+            referencePropsFileText.Append("    </Reference>").Append(k_WindowsNewline);
         }
 
         public string ProjectFile(Assembly assembly)
         {
             var fileBuilder = new StringBuilder(assembly.name);
             fileBuilder.Append(".csproj");
+            return Path.Combine(ProjectDirectory, fileBuilder.ToString());
+        }
+
+        public string ReferencePropsFile(Assembly assembly)
+        {
+            var fileBuilder = new StringBuilder(assembly.name);
+            fileBuilder.Append(".References.props");
             return Path.Combine(ProjectDirectory, fileBuilder.ToString());
         }
 
